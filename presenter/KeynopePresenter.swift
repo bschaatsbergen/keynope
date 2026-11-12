@@ -472,6 +472,26 @@ final class PresenterDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate
         formatItem.submenu = formatMenu
         mainMenu.addItem(formatItem)
 
+        let playItem = NSMenuItem()
+        let playMenu = NSMenu(title: "Play")
+        playMenu.autoenablesItems = false
+        playMenu.delegate = self
+        for (command, title, shortcut, modifiers) in [
+            ("play", "Present on This Computer", "p", NSEvent.ModifierFlags([.command, .option])),
+            ("play-external", "Present on External Screen", "P", [.command, .option, .shift]),
+            ("toggle-notes", "Speaker Notes", "P", [.command, .shift])
+        ] {
+            if command == "toggle-notes" { playMenu.addItem(.separator()) }
+            let item = playMenu.addItem(withTitle: title, action: #selector(performEditorCommand(_:)), keyEquivalent: shortcut)
+            item.target = self
+            item.identifier = NSUserInterfaceItemIdentifier(command)
+            item.keyEquivalentModifierMask = modifiers
+            item.isEnabled = false
+        }
+        editorCommandMenus.append(playMenu)
+        playItem.submenu = playMenu
+        mainMenu.addItem(playItem)
+
         let viewItem = NSMenuItem()
         let viewMenu = NSMenu(title: "View")
         viewMenu.autoenablesItems = false

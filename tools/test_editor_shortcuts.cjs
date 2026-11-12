@@ -174,6 +174,19 @@ Second text
     await select(lockedIndex,{bold:false,'bigger-text':false});
     await page.keyboard.press('Escape');await waitSelection([]);
 
+    // Presentation: Shift-Command-P toggles speaker notes; Option-Command-P
+    // drives the Play button, which in the browser editor opens the live
+    // presentation window.
+    await blur();
+    const notesShown=()=>page.evaluate(()=>document.documentElement.getAttribute('data-keynope-notes'));
+    const notesBefore=await notesShown();
+    await page.keyboard.press('Meta+Shift+p');await page.waitForFunction(before=>document.documentElement.getAttribute('data-keynope-notes')!==before,notesBefore);
+    await page.keyboard.press('Meta+Shift+p');await page.waitForFunction(before=>document.documentElement.getAttribute('data-keynope-notes')===before,notesBefore);
+    flags=await commandState();assert.equal(flags.play,true);assert.equal(flags['play-external'],false,'no external display in the browser editor');
+    const popup=context.waitForEvent('page');await page.keyboard.press('Meta+Alt+p');
+    const presentation=await popup;await presentation.close();
+    await blur();
+
     assert.deepEqual(errors,[]);
     console.log('editor shortcuts ok ('+engine+')');
   }finally{await browser.close();server.close();}

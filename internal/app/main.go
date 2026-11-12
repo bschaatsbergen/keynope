@@ -16229,6 +16229,13 @@ if (keynopeAppSurface) {
   defineEditorShortcut('align-left','Meta+Shift+{','Align text left',()=>changeModernTextStyle(editorState.selected,{textAlign:'left'}),()=>textPropertyEditable('text.align','alignment'));
   defineEditorShortcut('align-center','Meta+Shift+|','Center text',()=>changeModernTextStyle(editorState.selected,{textAlign:'center'}),()=>textPropertyEditable('text.align','alignment'));
   defineEditorShortcut('align-right','Meta+Shift+}','Align text right',()=>changeModernTextStyle(editorState.selected,{textAlign:'right'}),()=>textPropertyEditable('text.align','alignment'));
+
+  // Presentation commands drive the toolbar buttons so the app surface, the
+  // browser editor and the external-display rules stay in one place.
+  const toolbarButtonReady=button=>!!button&&!button.hidden&&!button.disabled&&!!button.getClientRects().length;
+  defineEditorShortcut('play','Meta+Alt+P','Present on this computer',()=>presentButton.click(),()=>toolbarButtonReady(presentButton));
+  defineEditorShortcut('play-external','Meta+Alt+Shift+P','Present on the external screen',()=>externalButton.click(),()=>toolbarButtonReady(externalButton));
+  defineEditorShortcut('toggle-notes','Meta+Shift+P','Show or hide speaker notes',()=>setSpeakerNotesVisible(!editorSpeakerNotesVisible,false));
   addEventListener('keydown', e => {
     if((e.metaKey||e.ctrlKey)&&e.altKey&&!e.shiftKey&&['c','v'].includes(e.key.toLowerCase())){
       if(editorClipboardTextTarget(e.target))return;
