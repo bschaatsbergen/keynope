@@ -11396,6 +11396,11 @@ if (keynopeAppSurface) {
     editor.addEventListener('click', updateCaret);
     editor.addEventListener('keyup', updateCaret);
     editor.addEventListener('keydown', keyEvent => {
+      if(keyEvent.key==='Enter'&&(keyEvent.metaKey||keyEvent.ctrlKey)&&!keyEvent.altKey){
+        // Command-Return commits and leaves editing, as in the modern text
+        // dialog, instead of inserting a line or being read as a bare Return.
+        keyEvent.preventDefault();keyEvent.stopPropagation();finish(true);return;
+      }
       if(KeynopeTrueType.is(element)){
         if(element.kind!=='code'&&(keyEvent.key==='Backspace'||keyEvent.key==='Delete')&&
           (deleteInlineEditorSelectionPreservingFormatting(editor)||deleteInlineEditorColorContent(editor,keyEvent.key==='Backspace'?-1:1)||deleteInlineEditorAcrossFormatting(editor,keyEvent.key==='Backspace'?-1:1))){keyEvent.preventDefault();}
@@ -16042,8 +16047,10 @@ if (keynopeAppSurface) {
   const editorShortcutBindings=[];
   function editorShortcutChord(e){
     let key=e.key;
+    const shifted={BracketLeft:'{',BracketRight:'}',Backslash:'|',Comma:'<',Period:'>'};
     if(e.altKey&&/^Key[A-Z]$/.test(e.code||''))key=e.code.slice(3);
     else if(e.altKey&&/^Digit[0-9]$/.test(e.code||''))key=e.code.slice(5);
+    else if(e.shiftKey&&shifted[e.code])key=shifted[e.code];
     else if(key.length===1)key=key.toUpperCase();
     return [(e.metaKey||e.ctrlKey)&&'Meta',e.altKey&&'Alt',e.shiftKey&&'Shift',key].filter(Boolean).join('+');
   }
@@ -16199,6 +16206,29 @@ if (keynopeAppSurface) {
   defineEditorShortcut('group','Meta+Alt+G','Group the selected objects',()=>groupAction('group-elements'),()=>editorState.selected>=0);
   defineEditorShortcut('ungroup','Meta+Alt+Shift+G','Ungroup the selected group',()=>groupAction('ungroup-elements'),()=>editorState.selected>=0);
   defineEditorShortcut('edit-group','Meta+Alt+Enter','Edit the objects inside the selected group',()=>groupAction('enter-group'),()=>editorState.selected>=0);
+
+  // Text commands act on the selected objects through the same selection
+  // properties as the Format ribbon, so mixed selections, inherited styles
+  // and read-only targets resolve exactly as the ribbon buttons do.
+  // Capabilities trail the state by one sync tick; until they catch up, fall
+  // back to the per-object capability the ribbon uses, so a chord typed right
+  // after a selection or an edit is not silently dropped.
+  function textPropertyEditable(property,capability){
+    const state=canvasSelectionProperty(property);
+    if(state)return !!state.editable&&!!state.eligibleIds?.length;
+    const elements=editorState.slides?.[editorState.current]?.elements||[];
+    return selectedElementIndices().some(index=>canvasSupportsTextCapability(elements[index],capability));
+  }
+  function textPropertyOn(property){const state=canvasSelectionProperty(property);return state?.state==='value'&&state.value===true;}
+  function toggleTextEmphasis(property,key){return changeModernTextStyle(editorState.selected,{[key]:!textPropertyOn(property)});}
+  defineEditorShortcut('bold','Meta+B','Bold',()=>toggleTextEmphasis('text.bold','textBold'),()=>textPropertyEditable('text.bold','emphasis'));
+  defineEditorShortcut('italic','Meta+I','Italic',()=>toggleTextEmphasis('text.italic','textItalic'),()=>textPropertyEditable('text.italic','emphasis'));
+  defineEditorShortcut('underline','Meta+U','Underline',()=>toggleTextEmphasis('text.underline','textUnderline'),()=>textPropertyEditable('text.underline','emphasis'));
+  defineEditorShortcut('bigger-text','Meta+Shift+>','Bigger text',()=>changeModernTextStyle(editorState.selected,{textSizeDelta:1}),()=>textPropertyEditable('text.size','size'));
+  defineEditorShortcut('smaller-text','Meta+Shift+<','Smaller text',()=>changeModernTextStyle(editorState.selected,{textSizeDelta:-1}),()=>textPropertyEditable('text.size','size'));
+  defineEditorShortcut('align-left','Meta+Shift+{','Align text left',()=>changeModernTextStyle(editorState.selected,{textAlign:'left'}),()=>textPropertyEditable('text.align','alignment'));
+  defineEditorShortcut('align-center','Meta+Shift+|','Center text',()=>changeModernTextStyle(editorState.selected,{textAlign:'center'}),()=>textPropertyEditable('text.align','alignment'));
+  defineEditorShortcut('align-right','Meta+Shift+}','Align text right',()=>changeModernTextStyle(editorState.selected,{textAlign:'right'}),()=>textPropertyEditable('text.align','alignment'));
   addEventListener('keydown', e => {
     if((e.metaKey||e.ctrlKey)&&e.altKey&&!e.shiftKey&&['c','v'].includes(e.key.toLowerCase())){
       if(editorClipboardTextTarget(e.target))return;

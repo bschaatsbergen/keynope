@@ -19,7 +19,7 @@ const cases=Object.freeze([
  ['builds','test_powerup_builds.cjs','Timeline editing, presenter/standalone/participant cursor playback'],
  ['corpus','test_powerup_corpus.cjs','Twenty public proof pages, fonts and declared diagnostics'],
  ['mixed','test_primitive_integration.cjs','Normal/tab/Base/layout mixed groups and editable second reopen'],
- ['shortcuts','test_editor_shortcuts.cjs','Native keyboard chords: selection, slide management, navigation, layering, locking and grouping with text-field and dialog guards']
+ ['shortcuts','test_editor_shortcuts.cjs','Native keyboard chords: selection, slides, navigation, layering, locking, grouping and text formatting with text-field and dialog guards']
 ].map(([id,script,coverage])=>Object.freeze({id,script,coverage})));
 
 // These readbacks must consume this engine's fresh browser output, never an

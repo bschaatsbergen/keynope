@@ -147,6 +147,33 @@ Second text
     assert.equal(await groupOf(secondIndex),'');
     await page.keyboard.press('Escape');await waitSelection([]);
 
+    // Text: emphasis, size and alignment chords resolve through the selection
+    // properties, so a shape without text reports them unavailable.
+    const query=async index=>new URLSearchParams((await state()).slides[0].elements[index].query);
+    const waitQuery=(index,key,value)=>waitForAsync(page,async([index,key,value])=>(new URLSearchParams((await fetch('/api/editor/state').then(r=>r.json())).slides[0].elements[index].query).get(key)||'')===value,[index,key,value]);
+    await select(textIndex,{bold:true,italic:true,underline:true,'bigger-text':true,'align-left':true});
+    // Emphasis is read back through the selection property, because the
+    // engine stores it per font family (ttf-weight for retro faces).
+    const waitProperty=(property,value)=>waitForAsync(page,async([property,value])=>{const s=await fetch('/api/editor/state').then(r=>r.json());const p=s.selectionCapabilities?.properties?.[property];return s.selectionCapabilities?.revision===s.version&&p?.state==='value'&&p.value===value;},[property,value]);
+    await page.keyboard.press('Meta+b');await waitProperty('text.bold',true);
+    await page.keyboard.press('Meta+i');await waitProperty('text.italic',true);
+    await page.keyboard.press('Meta+u');await waitProperty('text.underline',true);
+    await page.keyboard.press('Meta+b');await waitProperty('text.bold',false);
+    await page.keyboard.press('Meta+i');await waitProperty('text.italic',false);
+    await page.keyboard.press('Meta+u');await waitProperty('text.underline',false);
+    // Each edit is sent with the page's state revision, so wait for the ribbon
+    // (which renders from the page's mirror) before the next chord.
+    const settled=value=>page.waitForFunction(value=>document.querySelector('[data-selection-property="text.size"]')?.value===String(value),value);
+    assert.equal(Number((await query(textIndex)).get('modern-size')),120);await settled(120);
+    await page.keyboard.press('Meta+Shift+Period');await waitQuery(textIndex,'modern-size','121');await settled(121);
+    await page.keyboard.press('Meta+Shift+Comma');await waitQuery(textIndex,'modern-size','120');await settled(120);
+    await page.keyboard.press('Meta+Shift+BracketRight');await waitProperty('text.align','right');await page.waitForTimeout(250);
+    await page.keyboard.press('Meta+Shift+Backslash');await waitProperty('text.align','center');await page.waitForTimeout(250);
+    await page.keyboard.press('Meta+Shift+BracketLeft');await waitProperty('text.align','left');
+    assert.equal((await query(textIndex)).get('left'),'10','text alignment must not move the object');
+    await select(lockedIndex,{bold:false,'bigger-text':false});
+    await page.keyboard.press('Escape');await waitSelection([]);
+
     assert.deepEqual(errors,[]);
     console.log('editor shortcuts ok ('+engine+')');
   }finally{await browser.close();server.close();}

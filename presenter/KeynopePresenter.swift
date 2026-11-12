@@ -447,6 +447,31 @@ final class PresenterDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate
         arrangeItem.submenu = arrangeMenu
         mainMenu.addItem(arrangeItem)
 
+        let formatItem = NSMenuItem()
+        let formatMenu = NSMenu(title: "Format")
+        formatMenu.autoenablesItems = false
+        formatMenu.delegate = self
+        for (command, title, shortcut, modifiers) in [
+            ("bold", "Bold", "b", NSEvent.ModifierFlags([.command])),
+            ("italic", "Italic", "i", [.command]),
+            ("underline", "Underline", "u", [.command]),
+            ("bigger-text", "Bigger", ">", [.command, .shift]),
+            ("smaller-text", "Smaller", "<", [.command, .shift]),
+            ("align-left", "Align Left", "{", [.command]),
+            ("align-center", "Center", "|", [.command]),
+            ("align-right", "Align Right", "}", [.command])
+        ] {
+            if command == "bigger-text" || command == "align-left" { formatMenu.addItem(.separator()) }
+            let item = formatMenu.addItem(withTitle: title, action: #selector(performEditorCommand(_:)), keyEquivalent: shortcut)
+            item.target = self
+            item.identifier = NSUserInterfaceItemIdentifier(command)
+            item.keyEquivalentModifierMask = modifiers
+            item.isEnabled = false
+        }
+        editorCommandMenus.append(formatMenu)
+        formatItem.submenu = formatMenu
+        mainMenu.addItem(formatItem)
+
         let viewItem = NSMenuItem()
         let viewMenu = NSMenu(title: "View")
         viewMenu.autoenablesItems = false
