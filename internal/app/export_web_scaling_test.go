@@ -228,7 +228,7 @@ func TestWebExportUsesPresentationCanvasRenderer(t *testing.T) {
 		"function cycleCanvasSelection(reverse)",
 		"cycleCanvasSelection(e.shiftKey)",
 		"name:toggle?'toggle':''",
-		"e.shiftKey?'ungroup-elements':'group-elements'",
+		"defineEditorShortcut('ungroup','Meta+Alt+Shift+G'",
 		"action:'enter-group'",
 		"event.key !== 'ContextMenu' && !(event.shiftKey && event.key === 'F10')",
 		"setCanvasAlignment(editorState.selected, e.key === '<' ? 'left' : e.key === '>' ? 'right' : 'center')",

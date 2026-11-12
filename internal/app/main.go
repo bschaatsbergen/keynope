@@ -16153,6 +16153,52 @@ if (keynopeAppSurface) {
   defineEditorShortcut('next-slide','PageDown','Next slide',()=>navigateEditorPage(1),slideShortcutsAllowed);
   defineEditorShortcut('first-slide','Home','First slide',()=>navigateEditorPageTo(nextPresentationPage(-1,1)),slideShortcutsAllowed);
   defineEditorShortcut('last-slide','End','Last slide',()=>navigateEditorPageTo(nextPresentationPage(deck.pages.length,-1)),slideShortcutsAllowed);
+
+  // Arrange commands follow Keynote: Shift-Command-F/B send the stack unit to
+  // the front or back and Option steps one layer; Command-L locks,
+  // Option-Command-L unlocks. A stack unit is one object or one whole group,
+  // the same rule as the Arrange inspector, and locked members stay put.
+  function selectedElementIndices(){
+    const elements=editorState.slides?.[editorState.current]?.elements||[];
+    return canvasSelectedIndices(editorState.selected).filter(index=>elements[index]);
+  }
+  function arrangeStackTarget(){
+    if(editorState.selected<0)return '';
+    const elements=editorState.slides?.[editorState.current]?.elements||[],indices=selectedElementIndices();
+    if(!indices.length)return '';
+    const members=canvasGroupMembers(editorState.selected);
+    if(indices.some(index=>!members.includes(index)))return '';
+    if(members.some(index=>new URLSearchParams(elements[index].query||'').get('object-locked')==='1'))return '';
+    return elements[editorState.selected]?.id||'';
+  }
+  async function moveSelectionLayer(kind){
+    const objectId=arrangeStackTarget();
+    if(!objectId)return false;
+    await finishInlineEditing();
+    const capture=canvasGeometryContext();
+    await queueEditorOperation(async()=>{
+      if(!canvasGeometryGestureCurrent(capture)||arrangeStackTarget()!==objectId)throw Error('The slide changed; try the layer move again.');
+      await performEditorAction({action:'move-object-layer',objectId,kind,slide:capture.slide,sceneMaster:capture.master,sceneRevision:editorState.version,mutationRevision:capture.mutationRevision});
+    });
+    return true;
+  }
+  function selectionLockStates(){
+    const elements=editorState.slides?.[editorState.current]?.elements||[];
+    return selectedElementIndices().map(index=>new URLSearchParams(elements[index].query||'').get('object-locked')==='1');
+  }
+  defineEditorShortcut('bring-to-front','Meta+Shift+F','Bring the selected object to the front',()=>moveSelectionLayer('front'),()=>!!arrangeStackTarget());
+  defineEditorShortcut('send-to-back','Meta+Shift+B','Send the selected object to the back',()=>moveSelectionLayer('back'),()=>!!arrangeStackTarget());
+  defineEditorShortcut('bring-forward','Meta+Alt+Shift+F','Bring the selected object forward one layer',()=>moveSelectionLayer('forward'),()=>!!arrangeStackTarget());
+  defineEditorShortcut('send-backward','Meta+Alt+Shift+B','Send the selected object back one layer',()=>moveSelectionLayer('backward'),()=>!!arrangeStackTarget());
+  defineEditorShortcut('lock','Meta+L','Lock the selected objects',()=>editorAction({action:'set-object-lock',value:1}),()=>selectionLockStates().some(locked=>!locked));
+  defineEditorShortcut('unlock','Meta+Alt+L','Unlock the selected objects',()=>editorAction({action:'set-object-lock',value:0}),()=>selectionLockStates().some(locked=>locked));
+  function groupAction(action){
+    const elements=editorState.slides?.[editorState.current]?.elements||[],index=editorState.selected;
+    return editorAction({action,element:index,elementData:elements[index]});
+  }
+  defineEditorShortcut('group','Meta+Alt+G','Group the selected objects',()=>groupAction('group-elements'),()=>editorState.selected>=0);
+  defineEditorShortcut('ungroup','Meta+Alt+Shift+G','Ungroup the selected group',()=>groupAction('ungroup-elements'),()=>editorState.selected>=0);
+  defineEditorShortcut('edit-group','Meta+Alt+Enter','Edit the objects inside the selected group',()=>groupAction('enter-group'),()=>editorState.selected>=0);
   addEventListener('keydown', e => {
     if((e.metaKey||e.ctrlKey)&&e.altKey&&!e.shiftKey&&['c','v'].includes(e.key.toLowerCase())){
       if(editorClipboardTextTarget(e.target))return;
@@ -16274,18 +16320,6 @@ if (keynopeAppSurface) {
       e.stopImmediatePropagation();
       const redo = e.key.toLowerCase() === 'y' || (e.key.toLowerCase() === 'z' && e.shiftKey);
       editorAction({action: redo ? 'redo' : 'undo'}).catch(() => {});
-      return;
-    }
-    if ((e.metaKey || e.ctrlKey) && e.altKey && e.key.toLowerCase() === 'g' && editorState && editorState.selected >= 0) {
-      e.preventDefault();
-      e.stopImmediatePropagation();
-      editorAction({action:e.shiftKey?'ungroup-elements':'group-elements',element:editorState.selected,elementData:editorState.slides?.[editorState.current]?.elements?.[editorState.selected]}).catch(() => {});
-      return;
-    }
-    if ((e.metaKey || e.ctrlKey) && e.altKey && e.key === 'Enter' && editorState && editorState.selected >= 0) {
-      e.preventDefault();
-      e.stopImmediatePropagation();
-      editorAction({action:'enter-group',element:editorState.selected,elementData:editorState.slides?.[editorState.current]?.elements?.[editorState.selected]}).catch(() => {});
       return;
     }
     if (!e.metaKey && !e.ctrlKey && !e.altKey && e.key === '2') {

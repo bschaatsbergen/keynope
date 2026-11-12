@@ -421,6 +421,32 @@ final class PresenterDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate
         slideItem.submenu = slideMenu
         mainMenu.addItem(slideItem)
 
+        let arrangeItem = NSMenuItem()
+        let arrangeMenu = NSMenu(title: "Arrange")
+        arrangeMenu.autoenablesItems = false
+        arrangeMenu.delegate = self
+        for (command, title, shortcut, modifiers) in [
+            ("bring-to-front", "Bring to Front", "F", NSEvent.ModifierFlags([.command, .shift])),
+            ("send-to-back", "Send to Back", "B", [.command, .shift]),
+            ("bring-forward", "Bring Forward", "F", [.command, .option, .shift]),
+            ("send-backward", "Send Backward", "B", [.command, .option, .shift]),
+            ("group", "Group", "g", [.command, .option]),
+            ("ungroup", "Ungroup", "G", [.command, .option, .shift]),
+            ("edit-group", "Edit Group", "\r", [.command, .option]),
+            ("lock", "Lock", "l", [.command]),
+            ("unlock", "Unlock", "l", [.command, .option])
+        ] {
+            if command == "group" || command == "lock" { arrangeMenu.addItem(.separator()) }
+            let item = arrangeMenu.addItem(withTitle: title, action: #selector(performEditorCommand(_:)), keyEquivalent: shortcut)
+            item.target = self
+            item.identifier = NSUserInterfaceItemIdentifier(command)
+            item.keyEquivalentModifierMask = modifiers
+            item.isEnabled = false
+        }
+        editorCommandMenus.append(arrangeMenu)
+        arrangeItem.submenu = arrangeMenu
+        mainMenu.addItem(arrangeItem)
+
         let viewItem = NSMenuItem()
         let viewMenu = NSMenu(title: "View")
         viewMenu.autoenablesItems = false

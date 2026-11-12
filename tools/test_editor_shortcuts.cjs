@@ -115,6 +115,38 @@ Second text
     await page.waitForTimeout(300);deckState=await slides();assert.equal(deckState.count,3);
     await page.evaluate(()=>document.getElementById('shortcut-caret').remove());
 
+    // Arrange: layer moves take one stack unit and rewrite z-index ranks;
+    // lock/unlock follow the selection and report their availability. The
+    // earlier object duplicate shifted indices, so locate objects by content.
+    await blur();await page.keyboard.press('Home');await waitSlides(3,0);
+    const indexOf=async predicate=>(await state()).slides[0].elements.findIndex(predicate);
+    const textIndex=await indexOf(e=>e.text==='First text'),secondIndex=await indexOf(e=>e.text==='Second text'),lockedIndex=await indexOf(e=>new URLSearchParams(e.query||'').get('object-locked')==='1');
+    assert(textIndex>=0&&secondIndex>=0&&lockedIndex>=0,'fixture objects located');
+    // The page mirrors editor state on a timer; wait for the published command
+    // flags to reflect the new selection before reading them.
+    const select=async(index,expected)=>{const s=await state();await page.evaluate(({i,e})=>editorAction({action:'select-element',element:i,elementData:e}),{i:index,e:s.slides[0].elements[index]});await page.waitForFunction(expected=>{const f=window.keynopeEditorCommandState();return Object.entries(expected).every(([k,v])=>f[k]===v);},expected);await blur();};
+    const rank=async index=>new URLSearchParams((await state()).slides[0].elements[index].query).get('z-index');
+    const waitRank=(index,value)=>waitForAsync(page,async([index,value])=>new URLSearchParams((await fetch('/api/editor/state').then(r=>r.json())).slides[0].elements[index].query).get('z-index')===value,[index,value]);
+    const waitLocked=(index,locked)=>waitForAsync(page,async([index,locked])=>(new URLSearchParams((await fetch('/api/editor/state').then(r=>r.json())).slides[0].elements[index].query).get('object-locked')==='1')===locked,[index,locked]);
+    await select(textIndex,{'bring-to-front':true,lock:true,unlock:false});
+    await page.keyboard.press('Meta+Shift+f');await waitRank(textIndex,'4');
+    await page.keyboard.press('Meta+Shift+b');await waitRank(textIndex,'0');
+    await page.keyboard.press('Meta+Alt+Shift+f');await waitRank(textIndex,'1');
+    await page.keyboard.press('Meta+Alt+Shift+b');await waitRank(textIndex,'0');
+    // A locked object cannot be reordered, but it can be unlocked.
+    await select(lockedIndex,{'bring-to-front':false,lock:false,unlock:true});
+    const lockedRank=await rank(lockedIndex);await page.keyboard.press('Meta+Shift+f');await page.waitForTimeout(300);assert.equal(await rank(lockedIndex),lockedRank);
+    await page.keyboard.press('Meta+Alt+l');await waitLocked(lockedIndex,false);
+    await page.keyboard.press('Meta+l');await waitLocked(lockedIndex,true);
+    // Group and ungroup keep their Option-Command-G chords.
+    await page.evaluate(async indices=>{const s=await fetch('/api/editor/state').then(r=>r.json());await editorAction({action:'select-elements',elementIndices:indices,elementsData:indices.map(i=>({id:s.slides[0].elements[i].id}))});},[textIndex,secondIndex]);
+    await waitSelection([textIndex,secondIndex].sort((a,b)=>a-b));await blur();
+    const groupOf=async index=>new URLSearchParams((await state()).slides[0].elements[index].query).get('group')||'';
+    await page.keyboard.press('Meta+Alt+g');await waitForAsync(page,async([a,b])=>{const s=await fetch('/api/editor/state').then(r=>r.json());const g=i=>new URLSearchParams(s.slides[0].elements[i].query).get('group');return !!g(a)&&g(a)===g(b);},[textIndex,secondIndex]);
+    await page.keyboard.press('Meta+Alt+Shift+g');await waitForAsync(page,async index=>!new URLSearchParams((await fetch('/api/editor/state').then(r=>r.json())).slides[0].elements[index].query).get('group'),textIndex);
+    assert.equal(await groupOf(secondIndex),'');
+    await page.keyboard.press('Escape');await waitSelection([]);
+
     assert.deepEqual(errors,[]);
     console.log('editor shortcuts ok ('+engine+')');
   }finally{await browser.close();server.close();}
