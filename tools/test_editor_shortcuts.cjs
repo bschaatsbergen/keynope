@@ -79,6 +79,42 @@ Second text
     assert.equal(await command('deselect-all'),true);await waitSelection([]);
     assert.equal(await command('constructor'),false);assert.equal(await command('unknown-command'),false);
 
+    // Slide commands share the toolbar actions. New slide lands after the
+    // current one and becomes current; Duplicate clones the slide only when
+    // nothing is selected.
+    const slides=async()=>{const s=await state();return {current:s.current,ids:s.slides.map(slide=>slide.id),count:s.slides.length};};
+    const waitSlides=(count,current)=>waitForAsync(page,async([count,current])=>{const s=await fetch('/api/editor/state').then(r=>r.json());return s.slides.length===count&&(current==null||s.current===current);},[count,current]);
+    const waitSlideAt=(index,id)=>waitForAsync(page,async([index,id])=>{const s=await fetch('/api/editor/state').then(r=>r.json());return s.slides[index]?.id===id&&s.current===index;},[index,id]);
+    await blur();let deckState=await slides();assert.equal(deckState.count,1);const firstId=deckState.ids[0];
+    flags=await commandState();assert.equal(flags['move-slide-up'],false,'a single slide cannot move');assert.equal(flags['delete-slide'],true);
+    await page.keyboard.press('Meta+Shift+n');await waitSlides(2,1);
+    deckState=await slides();assert.equal(deckState.ids[0],firstId);
+    await page.keyboard.press('Meta+d');await waitSlides(3,2);
+    await page.keyboard.press('Home');await waitSlides(3,0);
+    await page.keyboard.press('Meta+a');await waitSelection([0,1]);
+    await page.keyboard.press('Meta+d');await waitForAsync(page,async()=>(await fetch('/api/editor/state').then(r=>r.json())).slides[0].elements.length===5);
+    deckState=await slides();assert.equal(deckState.count,3,'duplicating an object must not clone the slide');
+    await page.keyboard.press('Escape');await waitSelection([]);
+    // Moving follows the slide: down one, to the end, back to the beginning.
+    await page.keyboard.press('Meta+ArrowDown');await waitSlideAt(1,firstId);
+    await page.keyboard.press('Meta+Shift+ArrowDown');await waitSlideAt(2,firstId);
+    await page.keyboard.press('Meta+Shift+ArrowUp');await waitSlideAt(0,firstId);
+    await page.keyboard.press('Meta+ArrowUp');await page.waitForTimeout(300);deckState=await slides();assert.equal(deckState.current,0,'already first stays put');
+    // Page navigation keys.
+    await page.keyboard.press('End');await waitSlides(3,2);
+    await page.keyboard.press('PageUp');await waitSlides(3,1);
+    await page.keyboard.press('PageDown');await waitSlides(3,2);
+    // Delete the current slide; history restores it.
+    await page.keyboard.press('Meta+Backspace');await waitSlides(2,1);
+    await page.getByRole('button',{name:'Undo',exact:true}).click();await waitSlides(3);
+    await page.keyboard.press('End');await waitSlides(3,2);await page.keyboard.press('Meta+Delete');await waitSlides(2,1);
+    await page.getByRole('button',{name:'Undo',exact:true}).click();await waitSlides(3);
+    // Slide chords stay out of text fields.
+    await page.evaluate(()=>{const input=document.createElement('input');input.id='shortcut-caret';document.body.append(input);input.focus();});
+    await page.keyboard.press('Meta+Shift+n');await page.keyboard.press('Meta+Backspace');await page.keyboard.press('Home');
+    await page.waitForTimeout(300);deckState=await slides();assert.equal(deckState.count,3);
+    await page.evaluate(()=>document.getElementById('shortcut-caret').remove());
+
     assert.deepEqual(errors,[]);
     console.log('editor shortcuts ok ('+engine+')');
   }finally{await browser.close();server.close();}

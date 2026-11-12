@@ -16047,7 +16047,7 @@ if (keynopeAppSurface) {
     else if(key.length===1)key=key.toUpperCase();
     return [(e.metaKey||e.ctrlKey)&&'Meta',e.altKey&&'Alt',e.shiftKey&&'Shift',key].filter(Boolean).join('+');
   }
-  function defineEditorShortcut(name,chord,label,run,when){editorShortcutBindings.push({name,chord,label,run,when});}
+  function defineEditorShortcut(name,chord,label,run,when){const chords=[].concat(chord);editorShortcutBindings.push({name,chord:chords[0],chords,label,run,when});}
   function editorShortcutsAvailable(){
     if(!editorState||editorPresentationMode!=='none'||presenterTimerMode)return false;
     if(keynopeFormControlTarget(document.activeElement))return false;
@@ -16059,7 +16059,7 @@ if (keynopeAppSurface) {
     // owns the keyboard, as does a chord typed inside a dialog.
     if(e.target?.closest?.('dialog')||[...document.querySelectorAll('dialog[open]')].some(node=>node.getClientRects().length))return false;
     const chord=editorShortcutChord(e);
-    const binding=editorShortcutBindings.find(entry=>entry.chord===chord&&(!entry.when||entry.when()));
+    const binding=editorShortcutBindings.find(entry=>entry.chords.includes(chord)&&(!entry.when||entry.when()));
     if(!binding)return false;
     e.preventDefault();e.stopImmediatePropagation();
     Promise.resolve().then(binding.run).catch(error=>{if(editorStatus&&error?.message)editorStatus.textContent=error.message;});
@@ -16076,7 +16076,7 @@ if (keynopeAppSurface) {
     return true;
   };
   window.keynopeEditorCommandState=()=>Object.fromEntries(editorShortcutBindings.map(binding=>[binding.name,editorCommandAvailable(binding)]));
-  window.keynopeEditorShortcuts=()=>editorShortcutBindings.map(({name,chord,label})=>({name,chord,label}));
+  window.keynopeEditorShortcuts=()=>editorShortcutBindings.map(({name,chord,chords,label})=>({name,chord,chords:[...chords],label}));
 
   // Select All mirrors the Shift-drag marquee: hidden and locked objects stay
   // out, groups travel as one unit unless that group is being edited.
@@ -16108,6 +16108,51 @@ if (keynopeAppSurface) {
   }
   defineEditorShortcut('select-all','Meta+A','Select all objects on the slide',selectAllCanvasObjects,()=>canvasSelectAllIndices().length>0);
   defineEditorShortcut('deselect-all','Meta+Shift+A','Deselect all objects',deselectAllCanvasObjects,()=>editorState.selected>=0||(editorState.selection||[]).length>0);
+
+  // Slide commands. New, Duplicate and Delete send the same actions as the
+  // toolbar, so master mode keeps its layout semantics. Moving a slide only
+  // reorders ordinary slides; participant tabs and masters keep their own
+  // navigator gestures.
+  async function finishInlineEditing(){if(activeInlineEditor)await activeInlineEditor.finish(true);}
+  function ordinarySlideIndices(){return (editorState.slides||[]).map((slide,index)=>slide.tabId?-1:index).filter(index=>index>=0);}
+  function slideShortcutsAllowed(){return !editorState.masterMode&&!!deck.pages?.length;}
+  function slideMoveDestination(target){
+    if(!slideShortcutsAllowed()||editorState.selected>=0)return -1;
+    const order=ordinarySlideIndices(),position=order.indexOf(editorState.current);
+    if(position<0)return -1;
+    const destination=target==='first'?order[0]:target==='last'?order[order.length-1]:order[position+(target==='up'?-1:1)];
+    return destination==null||destination===editorState.current?-1:destination;
+  }
+  async function moveCurrentSlide(target){
+    await finishInlineEditing();
+    const destination=slideMoveDestination(target);
+    if(destination<0)return false;
+    await editorAction({action:'reorder-slide',slide:editorState.current,value:destination});
+    return true;
+  }
+  async function navigateEditorPageTo(targetIndex){
+    if(!deck.pages?.length||targetIndex<0||targetIndex>=deck.pages.length||targetIndex===pageIndex)return false;
+    await finishInlineEditing();
+    const target=deck.pages[targetIndex];
+    pageIndex=targetIndex;frame=0;render();scheduleEditorCanvasOverlay();
+    await editorAction({action:'navigate-presentation',slide:target.slide,page:target.page||0});
+    return true;
+  }
+  defineEditorShortcut('new-slide','Meta+Shift+N','New slide after the current slide',async()=>{await finishInlineEditing();await editorAction({action:'add-slide'});});
+  defineEditorShortcut('duplicate','Meta+D','Duplicate the selected object, or the slide when nothing is selected',async()=>{
+    await finishInlineEditing();
+    if(editorState.selected>=0)await editorAction({action:'duplicate-element',element:editorState.selected});
+    else await editorAction({action:'clone-slide'});
+  });
+  defineEditorShortcut('delete-slide',['Meta+Backspace','Meta+Delete'],'Delete the current slide',async()=>{await finishInlineEditing();await editorAction({action:'delete-slide'});},()=>!(editorState.masterMode&&editorState.current===0));
+  defineEditorShortcut('move-slide-up','Meta+ArrowUp','Move the slide up',()=>moveCurrentSlide('up'),()=>slideMoveDestination('up')>=0);
+  defineEditorShortcut('move-slide-down','Meta+ArrowDown','Move the slide down',()=>moveCurrentSlide('down'),()=>slideMoveDestination('down')>=0);
+  defineEditorShortcut('move-slide-first','Meta+Shift+ArrowUp','Move the slide to the beginning',()=>moveCurrentSlide('first'),()=>slideMoveDestination('first')>=0);
+  defineEditorShortcut('move-slide-last','Meta+Shift+ArrowDown','Move the slide to the end',()=>moveCurrentSlide('last'),()=>slideMoveDestination('last')>=0);
+  defineEditorShortcut('previous-slide','PageUp','Previous slide',()=>navigateEditorPage(-1),slideShortcutsAllowed);
+  defineEditorShortcut('next-slide','PageDown','Next slide',()=>navigateEditorPage(1),slideShortcutsAllowed);
+  defineEditorShortcut('first-slide','Home','First slide',()=>navigateEditorPageTo(nextPresentationPage(-1,1)),slideShortcutsAllowed);
+  defineEditorShortcut('last-slide','End','Last slide',()=>navigateEditorPageTo(nextPresentationPage(deck.pages.length,-1)),slideShortcutsAllowed);
   addEventListener('keydown', e => {
     if((e.metaKey||e.ctrlKey)&&e.altKey&&!e.shiftKey&&['c','v'].includes(e.key.toLowerCase())){
       if(editorClipboardTextTarget(e.target))return;
@@ -16291,12 +16336,6 @@ if (keynopeAppSurface) {
       e.stopImmediatePropagation();
       const action = (editorState.selection || []).length > 1 ? {action: 'delete-selection'} : {action: 'delete-element', element: editorState.selected};
       editorAction(action).catch(() => {});
-      return;
-    }
-    if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'd' && editorState && editorState.selected >= 0) {
-      e.preventDefault();
-      e.stopImmediatePropagation();
-      editorAction({action: 'duplicate-element', element: editorState.selected}).catch(() => {});
       return;
     }
     if (e.key === 'ArrowLeft' || e.key === 'ArrowRight') {

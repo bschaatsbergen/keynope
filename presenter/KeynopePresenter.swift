@@ -56,6 +56,7 @@ final class PresenterDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate
     private var appearanceMenuItems: [String: NSMenuItem] = [:]
     private let interfaceAppearanceKey = "keynope.interface.appearance"
     private var styleMenuItems: [String: NSMenuItem] = [:]
+    private var editorCommandMenus: [NSMenu] = []
     private var saveMenuItem: NSMenuItem?
     private var participantTabsMenuItem: NSMenuItem?
     private var activityQRMenuItem: NSMenuItem?
@@ -386,6 +387,40 @@ final class PresenterDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate
         editItem.submenu = editMenu
         mainMenu.addItem(editItem)
 
+        // Items whose key equivalents are editor chords. The web view sees the
+        // key first and handles it in place; the menu item is for discovery and
+        // the mouse. Plain navigation keys (Page Up/Down, Home, End) are chords
+        // too but stay off the menu so they keep scrolling focused text fields.
+        let slideItem = NSMenuItem()
+        let slideMenu = NSMenu(title: "Slide")
+        slideMenu.autoenablesItems = false
+        slideMenu.delegate = self
+        let upArrow = String(utf16CodeUnits: [unichar(NSUpArrowFunctionKey)], count: 1)
+        let downArrow = String(utf16CodeUnits: [unichar(NSDownArrowFunctionKey)], count: 1)
+        for (command, title, shortcut, modifiers) in [
+            ("new-slide", "New Slide", "N", NSEvent.ModifierFlags([.command, .shift])),
+            ("duplicate", "Duplicate", "d", [.command]),
+            ("delete-slide", "Delete Slide", "\u{08}", [.command]),
+            ("move-slide-up", "Move Slide Up", upArrow, [.command]),
+            ("move-slide-down", "Move Slide Down", downArrow, [.command]),
+            ("move-slide-first", "Move Slide to Beginning", upArrow, [.command, .shift]),
+            ("move-slide-last", "Move Slide to End", downArrow, [.command, .shift]),
+            ("previous-slide", "Previous Slide", "", []),
+            ("next-slide", "Next Slide", "", []),
+            ("first-slide", "First Slide", "", []),
+            ("last-slide", "Last Slide", "", [])
+        ] {
+            if command == "move-slide-up" || command == "previous-slide" { slideMenu.addItem(.separator()) }
+            let item = slideMenu.addItem(withTitle: title, action: #selector(performEditorCommand(_:)), keyEquivalent: shortcut)
+            item.target = self
+            item.identifier = NSUserInterfaceItemIdentifier(command)
+            item.keyEquivalentModifierMask = modifiers
+            item.isEnabled = false
+        }
+        editorCommandMenus.append(slideMenu)
+        slideItem.submenu = slideMenu
+        mainMenu.addItem(slideItem)
+
         let viewItem = NSMenuItem()
         let viewMenu = NSMenu(title: "View")
         viewMenu.autoenablesItems = false
@@ -555,6 +590,12 @@ final class PresenterDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate
                 }
             }
         }
+    }
+
+    @objc private func performEditorCommand(_ sender: NSMenuItem) {
+        guard let command = sender.identifier?.rawValue,
+              editorCommandMenus.contains(where: { $0.items.contains(sender) }) else { return }
+        editorShortcutCommand(command, fallback: nil)
     }
 
     @objc private func performWorkspaceCommand(_ sender: NSMenuItem) {
@@ -2045,6 +2086,20 @@ final class PresenterDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate
     }
 
     func menuNeedsUpdate(_ menu: NSMenu) {
+        if editorCommandMenus.contains(where: { $0 === menu }) {
+            for item in menu.items where !item.isSeparatorItem { item.isEnabled = false }
+            guard appMode, editorWindow?.isKeyWindow == true, let view = editorWebView else { return }
+            view.evaluateJavaScript("window.keynopeEditorCommandState?.() || {}") { [weak self, weak view, weak menu] result, _ in
+                MainActor.assumeIsolated {
+                    guard let self, let view, let menu, view === self.editorWebView else { return }
+                    let state = result as? [String: Bool] ?? [:]
+                    for item in menu.items where !item.isSeparatorItem {
+                        item.isEnabled = self.editorWindow?.isKeyWindow == true && state[item.identifier?.rawValue ?? ""] == true
+                    }
+                }
+            }
+            return
+        }
         if menu === workspaceMenu {
             let ready = appMode && editorWindow?.isKeyWindow == true
             for item in menu.items where !item.isSeparatorItem { item.isEnabled = ready }
