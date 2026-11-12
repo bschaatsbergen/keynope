@@ -16236,6 +16236,65 @@ if (keynopeAppSurface) {
   defineEditorShortcut('play','Meta+Alt+P','Present on this computer',()=>presentButton.click(),()=>toolbarButtonReady(presentButton));
   defineEditorShortcut('play-external','Meta+Alt+Shift+P','Present on the external screen',()=>externalButton.click(),()=>toolbarButtonReady(externalButton));
   defineEditorShortcut('toggle-notes','Meta+Shift+P','Show or hide speaker notes',()=>setSpeakerNotesVisible(!editorSpeakerNotesVisible,false));
+
+  // Keyboard shortcut sheet. Bound commands come straight from the table;
+  // the static rows describe chords that older handlers still own.
+  const shortcutSheetSections=[
+    ['Selection',['select-all','deselect-all','group','ungroup','edit-group']],
+    ['Slides',['new-slide','duplicate','delete-slide','move-slide-up','move-slide-down','move-slide-first','move-slide-last']],
+    ['Navigation',['previous-slide','next-slide','first-slide','last-slide']],
+    ['Arrange',['bring-to-front','send-to-back','bring-forward','send-backward','lock','unlock']],
+    ['Text',['bold','italic','underline','bigger-text','smaller-text','align-left','align-center','align-right']],
+    ['Presentation',['play','play-external','toggle-notes']],
+    ['Help',['shortcuts']]
+  ];
+  const shortcutSheetStatic={
+    Selection:[['Tab','Select the next object'],['Shift+Tab','Select the previous object'],['Escape','Deselect, cancel a drag or leave a group'],['Shift+Drag','Marquee select']],
+    Editing:[['Meta+Z','Undo'],['Meta+Shift+Z','Redo'],['Meta+X','Cut'],['Meta+C','Copy'],['Meta+V','Paste'],['Meta+Alt+C','Copy style'],['Meta+Alt+V','Paste style'],['Meta+S','Save'],['Delete','Delete the selected objects'],['Meta+Enter','Finish editing text']],
+    Objects:[['Arrows','Nudge the selected object one cell'],['Shift+Arrows','Nudge five cells'],['<','Align the object left'],['=','Center the object'],['>','Align the object right'],['O','Cycle the outline']],
+    Navigation:[['ArrowLeft','Previous slide when nothing is selected'],['ArrowRight','Next slide when nothing is selected']],
+    View:[['M','Master slides'],['2','Speaker notes'],['0','Timer'],['F6','Move focus to the next pane'],['Meta+Alt+1','Slide navigator'],['Meta+Alt+I','Format inspector'],['Meta+0','Zoom to fit'],['Meta+=','Zoom in'],['Meta+-','Zoom out'],['Meta+R','Rulers']]
+  };
+  const shortcutSheetMac=/Mac|iPhone|iPad/.test(navigator.platform||'');
+  function formatShortcutChord(chord){
+    const symbols=shortcutSheetMac?{Meta:'\u2318',Alt:'\u2325',Shift:'\u21e7'}:{Meta:'Ctrl',Alt:'Alt',Shift:'Shift'};
+    const keys={ArrowUp:'\u2191',ArrowDown:'\u2193',ArrowLeft:'\u2190',ArrowRight:'\u2192',Backspace:'\u232b',Delete:'\u2326',Enter:'\u21a9',Escape:'\u238b',PageUp:'\u21de',PageDown:'\u21df',Home:'\u2196',End:'\u2198',Tab:'\u21e5'};
+    const parts=chord.split('+').filter(Boolean),key=parts.pop();
+    const shiftedSymbol=/^[{}|<>]$/.test(key);
+    const modifiers=parts.filter(part=>!(shiftedSymbol&&part==='Shift')).map(part=>symbols[part]||part);
+    return [...modifiers,keys[key]||key].join(shortcutSheetMac?'':'+');
+  }
+  function shortcutSheetRows(){
+    const byName=new Map(editorShortcutBindings.map(binding=>[binding.name,binding]));
+    const sections=new Map();
+    for(const [heading,names] of shortcutSheetSections){
+      const rows=names.map(name=>byName.get(name)).filter(Boolean).flatMap(binding=>binding.chords.map(chord=>[chord,binding.label]));
+      sections.set(heading,rows);
+    }
+    for(const [heading,rows] of Object.entries(shortcutSheetStatic))sections.set(heading,[...(sections.get(heading)||[]),...rows]);
+    return [...sections].filter(([,rows])=>rows.length);
+  }
+  function openShortcutSheet(){
+    const dialog=document.createElement('dialog');dialog.className='keynope-shortcuts-dialog';dialog.setAttribute('aria-label','Keyboard shortcuts');dialog.setAttribute('aria-modal','true');
+    const title=document.createElement('h2');title.textContent='Keyboard shortcuts';
+    const grid=document.createElement('div');grid.className='keynope-shortcuts-grid';
+    for(const [heading,rows] of shortcutSheetRows()){
+      const section=document.createElement('section'),name=document.createElement('h3'),list=document.createElement('dl');
+      name.textContent=heading;
+      for(const [chord,label] of rows){
+        const term=document.createElement('dt'),key=document.createElement('kbd'),description=document.createElement('dd');
+        key.textContent=formatShortcutChord(chord);term.append(key);description.textContent=label;list.append(term,description);
+      }
+      section.append(name,list);grid.append(section);
+    }
+    const actions=document.createElement('div');actions.className='keynope-engagement-actions';
+    const done=document.createElement('button');done.type='button';done.textContent='Done';done.addEventListener('click',()=>dialog.close());
+    actions.append(done);dialog.append(title,grid,actions);document.body.append(dialog);
+    dialog.addEventListener('keydown',event=>keynopeHandleDialogKey(event,dialog,()=>dialog.close()));
+    dialog.addEventListener('close',()=>{dialog.remove();if(!document.querySelector('dialog[open],[aria-modal="true"]'))document.getElementById('stage')?.focus({preventScroll:true});});
+    dialog.showModal();done.focus();
+  }
+  defineEditorShortcut('shortcuts','Meta+/','Show keyboard shortcuts',openShortcutSheet);
   addEventListener('keydown', e => {
     if((e.metaKey||e.ctrlKey)&&e.altKey&&!e.shiftKey&&['c','v'].includes(e.key.toLowerCase())){
       if(editorClipboardTextTarget(e.target))return;

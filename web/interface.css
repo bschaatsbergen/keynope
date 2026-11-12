@@ -205,6 +205,15 @@ html[data-keynope-workspace="inspector"] .keynope-engagement-kind button { text-
 .keynope-participants-confirmation button { margin-right:8px; }
 .keynope-activity-actions-dialog { width:min(600px,calc(100vw - 32px));border:1px solid var(--ui-border);border-radius:10px;padding:20px; }
 .keynope-activity-actions-dialog::backdrop { background:#0008; }
+.keynope-shortcuts-dialog { width:min(880px,calc(100vw - 32px));max-height:calc(100vh - 48px);overflow:auto;border:1px solid var(--ui-border);border-radius:10px;padding:20px;color:var(--ui-text);background:var(--ui-surface); }
+.keynope-shortcuts-dialog::backdrop { background:#0008; }
+.keynope-shortcuts-dialog h2 { margin:0 0 12px; }
+.keynope-shortcuts-grid { display:grid;grid-template-columns:repeat(auto-fill,minmax(250px,1fr));gap:12px 28px;margin-bottom:16px; }
+.keynope-shortcuts-grid h3 { margin:8px 0 6px;font-size:12px;text-transform:uppercase;letter-spacing:.04em;color:var(--ui-secondary); }
+.keynope-shortcuts-grid dl { margin:0;display:grid;grid-template-columns:auto minmax(0,1fr);gap:5px 10px;align-items:baseline; }
+.keynope-shortcuts-grid dt, .keynope-shortcuts-grid dd { margin:0; }
+.keynope-shortcuts-grid dd { font-size:13px;line-height:1.4; }
+.keynope-shortcuts-grid kbd { font:12px/1.4 ui-monospace,SFMono-Regular,Menlo,monospace;padding:1px 6px;border:1px solid var(--ui-border);border-bottom-width:2px;border-radius:5px;background:var(--ui-field);white-space:nowrap; }
 .keynope-slides-header button[aria-label="Hide slide navigator"] { padding:0!important;width:28px;min-width:28px;min-height:28px;font-size:20px;line-height:1; }
 @media(max-width:760px) {
   html[data-keynope-workspace="inspector"] .keynope-insert-popover { width:calc(100vw - 20px); }

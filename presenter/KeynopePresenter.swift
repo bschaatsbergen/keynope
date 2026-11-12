@@ -528,6 +528,19 @@ final class PresenterDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate
         windowMenu.addItem(withTitle: "Bring All to Front", action: #selector(NSApplication.arrangeInFront(_:)), keyEquivalent: "")
         windowItem.submenu = windowMenu
         mainMenu.addItem(windowItem)
+
+        let helpItem = NSMenuItem()
+        let helpMenu = NSMenu(title: "Help")
+        helpMenu.autoenablesItems = false
+        helpMenu.delegate = self
+        let shortcutsItem = helpMenu.addItem(withTitle: "Keyboard Shortcuts", action: #selector(performEditorCommand(_:)), keyEquivalent: "/")
+        shortcutsItem.target = self
+        shortcutsItem.identifier = NSUserInterfaceItemIdentifier("shortcuts")
+        shortcutsItem.isEnabled = false
+        editorCommandMenus.append(helpMenu)
+        helpItem.submenu = helpMenu
+        mainMenu.addItem(helpItem)
+        NSApp.helpMenu = helpMenu
         NSApp.mainMenu = mainMenu
         NSApp.windowsMenu = windowMenu
     }

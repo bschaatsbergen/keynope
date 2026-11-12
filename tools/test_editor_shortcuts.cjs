@@ -187,6 +187,17 @@ Second text
     const presentation=await popup;await presentation.close();
     await blur();
 
+    // Command-/ opens the shortcut sheet; it lists every bound chord, owns the
+    // keyboard while open, and Escape closes it.
+    await page.keyboard.press('Meta+Slash');const sheet=page.locator('dialog[aria-label="Keyboard shortcuts"]');await sheet.waitFor();
+    const listed=await sheet.locator('dd').allTextContents(),keys=await sheet.locator('kbd').allTextContents();
+    const published=await page.evaluate(()=>window.keynopeEditorShortcuts());
+    for(const binding of published)assert(listed.includes(binding.label),'sheet lists '+binding.name);
+    assert.equal(keys.length,listed.length);assert(keys.every(Boolean),'every row shows its chord');
+    assert(keys.length>published.flatMap(b=>b.chords).length,'static rows for older handlers are listed too');
+    await page.keyboard.press('Meta+a');await page.waitForTimeout(300);current=await selection();assert.equal(current.selected,-1,'the sheet owns the keyboard while open');
+    await page.keyboard.press('Escape');await sheet.waitFor({state:'detached'});
+
     assert.deepEqual(errors,[]);
     console.log('editor shortcuts ok ('+engine+')');
   }finally{await browser.close();server.close();}
