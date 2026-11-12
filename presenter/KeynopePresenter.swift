@@ -350,7 +350,11 @@ final class PresenterDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate
         let copyItem = editMenu.addItem(withTitle: "Copy", action: #selector(copyEditorObjects(_:)), keyEquivalent: "c")
         let pasteItem = editMenu.addItem(withTitle: "Paste", action: #selector(pasteEditorObjects(_:)), keyEquivalent: "v")
         for item in [cutItem, copyItem, pasteItem] { item.target = self }
-        editMenu.addItem(withTitle: "Select All", action: #selector(NSText.selectAll(_:)), keyEquivalent: "a")
+        let selectAllItem = editMenu.addItem(withTitle: "Select All", action: #selector(selectAllEditorObjects(_:)), keyEquivalent: "a")
+        selectAllItem.target = self
+        let deselectAllItem = editMenu.addItem(withTitle: "Deselect All", action: #selector(deselectAllEditorObjects(_:)), keyEquivalent: "A")
+        deselectAllItem.keyEquivalentModifierMask = [.command, .shift]
+        deselectAllItem.target = self
         editMenu.addItem(NSMenuItem.separator())
         let styleItem = NSMenuItem(title: "Style", action: nil, keyEquivalent: "")
         let styles = NSMenu(title: "Style")
@@ -530,6 +534,28 @@ final class PresenterDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate
     @objc private func cutEditorObjects(_ sender: Any?) { editorClipboardCommand("cut") }
     @objc private func copyEditorObjects(_ sender: Any?) { editorClipboardCommand("copy") }
     @objc private func pasteEditorObjects(_ sender: Any?) { editorClipboardCommand("paste") }
+
+    @objc private func selectAllEditorObjects(_ sender: Any?) { editorShortcutCommand("select-all", fallback: #selector(NSText.selectAll(_:))) }
+    @objc private func deselectAllEditorObjects(_ sender: Any?) { editorShortcutCommand("deselect-all", fallback: nil) }
+
+    // Menu items for editor chords run the named binding through the same
+    // guards as the keyboard shortcut, so a text field or an open dialog
+    // declines the command and the ordinary AppKit responder chain handles it
+    // instead. Names are internal constants, never user input.
+    private func editorShortcutCommand(_ name: String, fallback: Selector?) {
+        guard let editorWebView, editorWindow?.isKeyWindow == true else {
+            if let fallback { NSApp.sendAction(fallback, to: nil, from: nil) }
+            return
+        }
+        let script = "window.keynopeEditorCommand?.('\(name)') === true"
+        editorWebView.evaluateJavaScript(script) { result, error in
+            MainActor.assumeIsolated {
+                if error != nil || (result as? Bool) != true, let fallback {
+                    NSApp.sendAction(fallback, to: nil, from: nil)
+                }
+            }
+        }
+    }
 
     @objc private func performWorkspaceCommand(_ sender: NSMenuItem) {
         guard appMode, editorWindow?.isKeyWindow == true, let view = editorWebView,

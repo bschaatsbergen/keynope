@@ -1,0 +1,85 @@
+// Build first: tools/build_web_editor.sh /tmp/keynope-shortcuts-site/editor
+// Native editor keyboard chords against the actual WASM editor. Owned
+// fixture, no external traffic, no system clipboard.
+const {waitForAsync}=require('./wait_for_async.cjs');
+const assert=require('node:assert/strict'),fs=require('node:fs'),path=require('node:path'),http=require('node:http');
+const playwright=require(process.env.PLAYWRIGHT_MODULE||'playwright'),engine=process.env.TEST_BROWSER||'chromium',root=path.resolve(process.env.TEST_SITE||'/tmp/keynope-shortcuts-site');
+const server=http.createServer((req,res)=>{let name=new URL(req.url,'http://localhost').pathname;if(name.endsWith('/'))name+='index.html';const file=path.resolve(root,'.'+name);if(!file.startsWith(root+'/')||!fs.existsSync(file)){res.writeHead(404);return res.end();}res.setHeader('Content-Type',({'.js':'text/javascript','.css':'text/css','.html':'text/html','.wasm':'application/wasm','.json':'application/json'})[path.extname(file)]||'application/octet-stream');res.end(fs.readFileSync(file));});
+const deck=`<!-- keynope width=245 height=56 -->
+
+<!-- top=4 left=10 width=85 height=8 render=truetype modern-font=c64 modern-size=120 -->
+First text
+
+<!-- top=16 left=10 width=85 height=8 render=truetype modern-font=mono modern-size=100 -->
+Second text
+
+<!-- top=28 left=10 width=30 height=10 fg=#55aaff shape=square object-locked=1 -->
+[shape:square]
+
+<!-- top=40 left=10 width=30 height=10 fg=#ffaa55 shape=circle object-hidden=1 -->
+[shape:circle]
+`;
+(async()=>{
+  await new Promise(resolve=>server.listen(0,'127.0.0.1',resolve));
+  const browser=await playwright[engine].launch({headless:true,...(engine==='webkit'?{}:{executablePath:process.env.CHROME_PATH})});
+  try{
+    const context=await browser.newContext({viewport:{width:1500,height:1000}});await context.route(/https?:\/\/(?!127\.0\.0\.1).*/,route=>route.abort());
+    const page=await context.newPage(),errors=[];page.setDefaultTimeout(20000);page.on('pageerror',error=>errors.push(error.message));
+    page.on('dialog',async dialog=>{assert.equal(dialog.type(),'confirm');await dialog.accept();});
+    await page.goto('http://127.0.0.1:'+server.address().port+'/editor/');await page.locator('.keynope-web-loading').waitFor({state:'detached',timeout:90000});
+    const state=()=>page.evaluate(()=>fetch('/api/editor/state').then(r=>r.json()));
+    const chooser=page.waitForEvent('filechooser');
+    await page.getByRole('button',{name:'Open a Keynope or PowerPoint presentation',exact:true}).click();
+    await (await chooser).setFiles({name:'shortcuts.md',mimeType:'text/markdown',buffer:Buffer.from(deck)});
+    await waitForAsync(page,async()=>{const s=await fetch('/api/editor/state').then(r=>r.json());return s.slides?.[0]?.elements?.length===4;});
+    await page.locator('.keynope-canvas-element').first().waitFor();
+    const blur=()=>page.evaluate(()=>{document.activeElement?.blur();document.getElementById('stage')?.focus();});
+    const selection=async()=>{const s=await state();return {selected:s.selected,selection:[...(s.selection||[])].sort((a,b)=>a-b),canUndo:!!s.canUndo};};
+    const waitSelection=expected=>waitForAsync(page,async expected=>{const s=await fetch('/api/editor/state').then(r=>r.json());return JSON.stringify([...(s.selection||[])].sort((a,b)=>a-b))===JSON.stringify(expected)&&(expected.length?s.selected>=0:s.selected<0);},expected);
+
+    // The shortcut table is the single description shared with menus/help.
+    const bindings=await page.evaluate(()=>window.keynopeEditorShortcuts());
+    const chord=name=>bindings.find(binding=>binding.name===name)?.chord;
+    assert.equal(chord('select-all'),'Meta+A');assert.equal(chord('deselect-all'),'Meta+Shift+A');
+    assert(bindings.every(binding=>binding.name&&binding.chord&&binding.label),'every binding is described for menus and help');
+    const command=name=>page.evaluate(name=>window.keynopeEditorCommand(name),name);
+    const commandState=()=>page.evaluate(()=>window.keynopeEditorCommandState());
+
+    // Select All picks the visible, unlocked objects like the marquee does.
+    await blur();const before=await selection();assert.equal(before.selected,-1);
+    let flags=await commandState();assert.equal(flags['select-all'],true);assert.equal(flags['deselect-all'],false,'nothing to deselect yet');
+    await page.keyboard.press('Meta+a');await waitSelection([0,1]);
+    let current=await selection();assert.equal(current.selected,0);assert.equal(current.canUndo,before.canUndo,'selection must not create history');
+    flags=await commandState();assert.equal(flags['deselect-all'],true);
+
+    // Deselect All clears both the primary and the multi-selection.
+    await page.keyboard.press('Meta+Shift+a');await waitSelection([]);
+    current=await selection();assert.equal(current.selected,-1);
+
+    // Control is the browser-editor stand-in for Command.
+    await page.keyboard.press('Control+a');await waitSelection([0,1]);
+    await page.keyboard.press('Escape');await waitSelection([]);
+
+    // Text fields keep their own Select All; the editor must not react.
+    await page.evaluate(()=>{const input=document.createElement('input');input.id='shortcut-caret';document.body.append(input);input.value='caret';input.focus();});
+    await page.keyboard.press('Meta+a');
+    assert.equal(await command('select-all'),false,'menu route declines while a text field has focus');assert.equal((await commandState())['select-all'],false);
+    await page.waitForTimeout(300);current=await selection();assert.equal(current.selected,-1);assert.deepEqual(current.selection,[]);
+    await page.evaluate(()=>document.getElementById('shortcut-caret').remove());
+
+    // Unrelated modal dialogs own the keyboard; the menu route declines too.
+    await page.evaluate(()=>{const dialog=document.createElement('dialog');dialog.id='unrelated-modal';dialog.innerHTML='<button>Unrelated modal</button>';document.body.append(dialog);dialog.showModal();dialog.querySelector('button').focus();});
+    await page.keyboard.press('Meta+a');
+    assert.equal(await command('select-all'),false);
+    await page.waitForTimeout(300);current=await selection();assert.equal(current.selected,-1);
+    await page.evaluate(()=>{const dialog=document.getElementById('unrelated-modal');dialog.close();dialog.remove();});
+
+    // The native menu item uses the same guarded route as the chord.
+    await blur();assert.equal(await command('select-all'),true);await waitSelection([0,1]);
+    assert.equal(await command('deselect-all'),true);await waitSelection([]);
+    assert.equal(await command('constructor'),false);assert.equal(await command('unknown-command'),false);
+
+    assert.deepEqual(errors,[]);
+    console.log('editor shortcuts ok ('+engine+')');
+  }finally{await browser.close();server.close();}
+})().catch(error=>{console.error(error);process.exit(1);});

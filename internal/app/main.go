@@ -16032,6 +16032,82 @@ if (keynopeAppSurface) {
     }).catch(() => {});
     return true;
   }
+  // Native editor shortcuts. A binding names its chord the way the help
+  // sheet and the native menus describe it ("Meta+Shift+A"), so one table owns
+  // the contract. Letters use the physical key when Option is held because
+  // macOS rewrites event.key for Option chords. Bindings run after the surface
+  // guards in the keydown handler below, so they never fire inside text
+  // fields, dialogs, menus or the slide navigator, and a binding whose when
+  // guard declines falls through to the older handlers.
+  const editorShortcutBindings=[];
+  function editorShortcutChord(e){
+    let key=e.key;
+    if(e.altKey&&/^Key[A-Z]$/.test(e.code||''))key=e.code.slice(3);
+    else if(e.altKey&&/^Digit[0-9]$/.test(e.code||''))key=e.code.slice(5);
+    else if(key.length===1)key=key.toUpperCase();
+    return [(e.metaKey||e.ctrlKey)&&'Meta',e.altKey&&'Alt',e.shiftKey&&'Shift',key].filter(Boolean).join('+');
+  }
+  function defineEditorShortcut(name,chord,label,run,when){editorShortcutBindings.push({name,chord,label,run,when});}
+  function editorShortcutsAvailable(){
+    if(!editorState||editorPresentationMode!=='none'||presenterTimerMode)return false;
+    if(keynopeFormControlTarget(document.activeElement))return false;
+    return ![...document.querySelectorAll('dialog[open],[aria-modal="true"],[role="menu"]')].some(node=>node.getClientRects().length);
+  }
+  function runEditorShortcut(e){
+    if(!editorState||editorPresentationMode!=='none'||presenterTimerMode)return false;
+    // Native <dialog> elements carry no aria-modal attribute; any open one
+    // owns the keyboard, as does a chord typed inside a dialog.
+    if(e.target?.closest?.('dialog')||[...document.querySelectorAll('dialog[open]')].some(node=>node.getClientRects().length))return false;
+    const chord=editorShortcutChord(e);
+    const binding=editorShortcutBindings.find(entry=>entry.chord===chord&&(!entry.when||entry.when()));
+    if(!binding)return false;
+    e.preventDefault();e.stopImmediatePropagation();
+    Promise.resolve().then(binding.run).catch(error=>{if(editorStatus&&error?.message)editorStatus.textContent=error.message;});
+    return true;
+  }
+  // Native menu items run a binding by name through the same guards as the
+  // chord, so a cached menu item can never act on a text field or behind a
+  // dialog. The state map drives menu enablement.
+  function editorCommandAvailable(binding){return !!binding&&editorShortcutsAvailable()&&(!binding.when||binding.when());}
+  window.keynopeEditorCommand=name=>{
+    const binding=editorShortcutBindings.find(entry=>entry.name===name);
+    if(!editorCommandAvailable(binding))return false;
+    Promise.resolve().then(binding.run).catch(error=>{if(editorStatus&&error?.message)editorStatus.textContent=error.message;});
+    return true;
+  };
+  window.keynopeEditorCommandState=()=>Object.fromEntries(editorShortcutBindings.map(binding=>[binding.name,editorCommandAvailable(binding)]));
+  window.keynopeEditorShortcuts=()=>editorShortcutBindings.map(({name,chord,label})=>({name,chord,label}));
+
+  // Select All mirrors the Shift-drag marquee: hidden and locked objects stay
+  // out, groups travel as one unit unless that group is being edited.
+  function canvasSelectAllIndices(){
+    const elements=editorState?.slides?.[editorState.current]?.elements||[];
+    if(!elements.length||canvasOverlay.hidden)return [];
+    const hits=[...canvasOverlay.querySelectorAll('.keynope-canvas-element')].map(hit=>Number(hit.dataset.element)).filter(index=>Number.isInteger(index)&&index>=0&&index<elements.length);
+    const editing=editorState.editingGroup||'';
+    const units=KeynopeWorkspace.marqueeSelectionUnits(elements,canvasCurrentBounds(),hits,editing);
+    const indices=new Set(units.flatMap(unit=>unit.members));
+    return [...indices].filter(index=>{
+      const q=new URLSearchParams(elements[index].query||'');
+      if(editing&&q.get('group')!==editing)return false;
+      return q.get('object-hidden')!=='1'&&q.get('object-locked')!=='1';
+    }).sort((a,b)=>a-b);
+  }
+  async function selectAllCanvasObjects(){
+    if(activeInlineEditor)await activeInlineEditor.finish(true);
+    const elements=editorState?.slides?.[editorState.current]?.elements||[],indices=canvasSelectAllIndices();
+    if(!indices.length){if(editorStatus)editorStatus.textContent='No selectable objects on this slide.';return false;}
+    await editorAction({action:'select-elements',elementIndices:indices,elementsData:indices.map(index=>({id:elements[index].id}))});
+    return true;
+  }
+  async function deselectAllCanvasObjects(){
+    if(!editorState||(editorState.selected<0&&!(editorState.selection||[]).length))return false;
+    if(pendingCanvasSelection){clearTimeout(pendingCanvasSelection);pendingCanvasSelection=null;}
+    await editorAction({action:'select-element',element:-1});
+    return true;
+  }
+  defineEditorShortcut('select-all','Meta+A','Select all objects on the slide',selectAllCanvasObjects,()=>canvasSelectAllIndices().length>0);
+  defineEditorShortcut('deselect-all','Meta+Shift+A','Deselect all objects',deselectAllCanvasObjects,()=>editorState.selected>=0||(editorState.selection||[]).length>0);
   addEventListener('keydown', e => {
     if((e.metaKey||e.ctrlKey)&&e.altKey&&!e.shiftKey&&['c','v'].includes(e.key.toLowerCase())){
       if(editorClipboardTextTarget(e.target))return;
@@ -16139,6 +16215,7 @@ if (keynopeAppSurface) {
         return;
       }
     }
+    if(runEditorShortcut(e))return;
     if ((e.metaKey || e.ctrlKey) && !e.altKey && !e.shiftKey && ['c','x','v'].includes(e.key.toLowerCase())) {
       if (editorClipboardTextTarget(e.target)) return;
       e.preventDefault();
